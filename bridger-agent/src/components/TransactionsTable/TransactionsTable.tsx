@@ -155,9 +155,6 @@ export const TransactionsTable = ({ clientId }: { clientId: string }) => {
       <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-4 border-b border-slate-100">
         <div className="flex items-center gap-3">
           <h2 className="text-lg font-semibold text-slate-800">Transactions</h2>
-          <select className={selectCls} value={activeAccount ?? ""} onChange={(e) => { setAccountId(e.target.value); setSelected(new Set()); }}>
-            {accounts.map((a: any) => <option key={a.id} value={a.id}>{a.name}</option>)}
-          </select>
           <label className="flex items-center gap-1.5 text-sm text-slate-500 select-none">
             <input type="checkbox" className="accent-indigo-600" checked={hideAccepted} onChange={(e) => setHideAccepted(e.target.checked)} />
             Hide accepted
