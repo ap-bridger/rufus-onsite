@@ -16,6 +16,8 @@ model Client {
   name String
 
   bankAccounts BankAccount[]
+  categories   Category[]
+  vendors      Vendor[]
 }
 
 model BankAccount {
@@ -28,19 +30,23 @@ model BankAccount {
 }
 
 model Category {
-  id    String @id @default(cuid())
-  qboId String
-  name  String
+  id       String @id @default(cuid())
+  qboId    String
+  name     String
+  clientId String
 
+  client            Client        @relation(fields: [clientId], references: [id])
   aiTransactions    Transaction[] @relation("AiCategory")
   finalTransactions Transaction[] @relation("FinalCategory")
 }
 
 model Vendor {
-  id    String @id @default(cuid())
-  qboId String
-  name  String
+  id       String @id @default(cuid())
+  qboId    String
+  name     String
+  clientId String
 
+  client            Client        @relation(fields: [clientId], references: [id])
   aiTransactions    Transaction[] @relation("AiVendor")
   finalTransactions Transaction[] @relation("FinalVendor")
 }
