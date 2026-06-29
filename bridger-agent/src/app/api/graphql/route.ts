@@ -4,6 +4,9 @@ import { transactions, updateTransaction } from "@/server/modules/transaction/ap
 import { vendors } from "@/server/modules/vendor/api";
 import { categories } from "@/server/modules/category/api";
 import { categorizeTransactions } from "@/server/modules/transaction/categorize";
+import { acceptAll } from "@/server/modules/transaction/accept";
+import { sendEmail } from "@/server/modules/transaction/sendEmail";
+import { submitFeedback } from "@/server/modules/feedback/api";
 import { createSchema, createYoga } from "graphql-yoga";
 
 const { handleRequest } = createYoga({
@@ -58,6 +61,12 @@ const { handleRequest } = createYoga({
         categories(clientId: ID!): [Category!]!
       }
 
+      type Feedback {
+        id: ID!
+        transactionId: ID!
+        feedback: String!
+      }
+
       type Mutation {
         categorizeTransactions(ids: [ID!]!): [Transaction!]!
         updateTransaction(
@@ -67,6 +76,9 @@ const { handleRequest } = createYoga({
           vendor: ID
           newVendorName: String
         ): Transaction!
+        acceptAll(ids: [ID!]!): [Transaction!]!
+        sendEmail(ids: [ID!]!): [Transaction!]!
+        submitFeedback(transactionId: ID!, feedback: String!): Feedback!
       }
     `,
     resolvers: {
@@ -80,6 +92,9 @@ const { handleRequest } = createYoga({
       Mutation: {
         categorizeTransactions,
         updateTransaction,
+        acceptAll,
+        sendEmail,
+        submitFeedback,
       },
     },
   }),

@@ -52,8 +52,8 @@ export const CATEGORIZE_ALL = gql(`
 `);
 
 export const UPDATE_TRANSACTION = gql(`
-  mutation UpdateTransaction($id: ID!, $finalCategoryId: ID, $finalVendorId: ID, $finalNewVendorName: String, $status: String) {
-    updateTransaction(id: $id, finalCategoryId: $finalCategoryId, finalVendorId: $finalVendorId, finalNewVendorName: $finalNewVendorName, status: $status) {
+  mutation UpdateTransaction($id: ID!, $status: TransactionStatus!, $category: ID, $vendor: ID, $newVendorName: String) {
+    updateTransaction(id: $id, status: $status, category: $category, vendor: $vendor, newVendorName: $newVendorName) {
       id status finalCategoryId finalVendorId finalNewVendorName
     }
   }
