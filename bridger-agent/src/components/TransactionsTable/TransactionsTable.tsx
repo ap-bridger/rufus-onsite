@@ -76,6 +76,8 @@ export const TransactionsTable = ({ clientId }: { clientId: string }) => {
   const [hideAccepted, setHideAccepted] = useState(false);
   const [pending, setPending] = useState<Pending | null>(null);
   const [reason, setReason] = useState("");
+  const [showRequest, setShowRequest] = useState(false);
+  const [requestMsg, setRequestMsg] = useState("");
 
   const categories = catData?.categories ?? [];
   const vendors = venData?.vendors ?? [];
@@ -121,6 +123,23 @@ export const TransactionsTable = ({ clientId }: { clientId: string }) => {
     setPending(null);
   };
 
+  // Drafts the client email from the selected transactions, then previews before send.
+  const openRequest = () => {
+    const sel = all.filter((t: any) => selected.has(t.id));
+    const lines = sel
+      .map((t: any) => `• ${String(t.date).slice(0, 10)} — ${t.description} — ${fmt(t.amountCents)}`)
+      .join("\n");
+    setRequestMsg(
+      `Hi SpaceX team,\n\nCould you help clarify the following transaction(s) so we can categorize them correctly?\n\n${lines}\n\nA short note on the purpose of each would be a big help. Thanks!`
+    );
+    setShowRequest(true);
+  };
+  const sendRequest = async () => {
+    await swallow(sendEmail)({ variables: { ids: selectedIds } });
+    setShowRequest(false);
+    setSelected(new Set());
+  };
+
   const vendorValue = (t: any) => {
     if (t.finalVendorId) return t.finalVendorId;
     if (t.finalNewVendorName) return `new:${t.finalNewVendorName}`;
@@ -155,7 +174,7 @@ export const TransactionsTable = ({ clientId }: { clientId: string }) => {
             className="px-3.5 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium shadow-sm disabled:opacity-40 transition">
             Approve ({selectedIds.length})
           </button>
-          <button onClick={() => swallow(sendEmail)({ variables: { ids: selectedIds } }).then(() => setSelected(new Set()))}
+          <button onClick={openRequest}
             disabled={sending || selectedIds.length === 0}
             className="px-3.5 py-2 rounded-lg bg-amber-500 hover:bg-amber-600 text-white text-sm font-medium shadow-sm disabled:opacity-40 transition">
             Request Info ({selectedIds.length})
@@ -184,7 +203,7 @@ export const TransactionsTable = ({ clientId }: { clientId: string }) => {
               <th className="px-3 py-3 font-medium">Description</th>
               <th className="px-3 py-3 font-medium text-right">Amount</th>
               <th className="px-3 py-3 font-medium">Date</th>
-              <th className="px-3 py-3 font-medium">AI Suggestion</th>
+              <th className="px-3 py-3 font-medium">AI Suggested Category</th>
               <th className="px-3 py-3 font-medium">Category</th>
               <th className="px-3 py-3 font-medium">Vendor</th>
               <th className="px-3 py-3 font-medium">Status</th>
@@ -254,6 +273,27 @@ export const TransactionsTable = ({ clientId }: { clientId: string }) => {
               <button onClick={applyPending} disabled={!reason.trim()}
                 className="px-3.5 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium disabled:opacity-40">
                 Save change &amp; feedback
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Info-request preview — drafts the client email before sending */}
+      {showRequest && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40" onClick={() => setShowRequest(false)}>
+          <div className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-xl" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-lg font-semibold text-slate-800">Request info from client</h3>
+            <p className="mt-1 text-sm text-slate-500">
+              To: <span className="font-medium text-slate-700">SpaceX</span> · {selectedIds.length} transaction(s)
+            </p>
+            <textarea value={requestMsg} onChange={(e) => setRequestMsg(e.target.value)} rows={9}
+              className="mt-3 w-full rounded-lg border border-slate-300 p-3 text-sm font-mono leading-relaxed focus:outline-none focus:ring-2 focus:ring-amber-400" />
+            <div className="mt-4 flex justify-end gap-2">
+              <button onClick={() => setShowRequest(false)} className="px-3.5 py-2 rounded-lg text-sm font-medium text-slate-600 hover:bg-slate-100">Cancel</button>
+              <button onClick={sendRequest} disabled={sending}
+                className="px-3.5 py-2 rounded-lg bg-amber-500 hover:bg-amber-600 text-white text-sm font-medium disabled:opacity-40">
+                Send request
               </button>
             </div>
           </div>
