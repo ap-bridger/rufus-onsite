@@ -18,7 +18,10 @@ const fmt = (cents: number) => {
 };
 
 const rowAccent = (t: any) => {
+  // Resolved rows: status wins (an accepted txn isn't "needs review" even if low-confidence).
+  if (t.status === "ACCEPTED") return "border-l-emerald-400 bg-emerald-50/30";
   if (t.status === "SENT") return "border-l-amber-400 bg-amber-50/40";
+  // Un-reviewed (DRAFT): color by AI confidence so low-confidence items stand out.
   if (t.confidence === "HIGH") return "border-l-emerald-400 bg-emerald-50/30";
   if (t.confidence === "LOW") return "border-l-rose-400 bg-rose-50/30";
   return "border-l-transparent";
