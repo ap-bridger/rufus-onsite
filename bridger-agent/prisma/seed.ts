@@ -47,12 +47,13 @@ const NEW_VENDOR_NAMES = ["Blue Bottle Coffee", "Acme Logistics", "Figma"];
 
 async function main() {
   // 1. Reset — delete in FK-dependency order so re-runs start from a clean slate.
+  // Client must be deleted LAST: BankAccount, Category and Vendor all FK-reference it.
   await prisma.feedback.deleteMany();
   await prisma.transaction.deleteMany();
   await prisma.bankAccount.deleteMany();
-  await prisma.client.deleteMany();
   await prisma.category.deleteMany();
   await prisma.vendor.deleteMany();
+  await prisma.client.deleteMany();
 
   // 2. One client.
   const client = await prisma.client.create({
