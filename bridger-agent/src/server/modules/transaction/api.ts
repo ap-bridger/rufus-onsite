@@ -52,19 +52,43 @@ export const updateTransaction = async (
 
   let data: Prisma.TransactionUpdateInput;
   switch (status) {
-    case "ACCEPTED":
-      // Persist the human's choices into the final fields.
+    case "ACCEPTED": {
+      // When the accountant typed a brand-new vendor, create it as a real
+      // Vendor row (and "create it in QBO" — mocked per scope) so it appears in
+      // the vendor dropdown going forward, then link it as the final vendor.
+      let finalVendor: Prisma.TransactionUpdateInput["finalVendor"];
+      if (newVendorName != null) {
+        const txn = await prisma.transaction.findUnique({
+          where: { id },
+          include: { bankAccount: true },
+        });
+        if (!txn) throw new GraphQLError(`Transaction not found: ${id}`);
+        const { clientId } = txn.bankAccount;
+        const name = newVendorName.trim();
+        // Reuse a same-named vendor for this client if one already exists.
+        const created =
+          (await prisma.vendor.findFirst({ where: { clientId, name } })) ??
+          (await prisma.vendor.create({
+            data: { clientId, name, qboId: `QBO-NEW-${Date.now()}` },
+          }));
+        finalVendor = { connect: { id: created.id } };
+      } else {
+        finalVendor = vendor
+          ? { connect: { id: vendor } }
+          : { disconnect: true };
+      }
+
       data = {
         status,
         finalCategory: category
           ? { connect: { id: category } }
           : { disconnect: true },
-        finalVendor: vendor
-          ? { connect: { id: vendor } }
-          : { disconnect: true },
-        finalNewVendorName: newVendorName ?? null,
+        finalVendor,
+        // The new vendor is now a real record, so clear the free-text field.
+        finalNewVendorName: null,
       };
       break;
+    }
     case "DRAFT":
       // Undo: clear everything the human had finalized.
       data = {

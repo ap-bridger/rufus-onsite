@@ -72,7 +72,11 @@ export const TransactionsTable = ({ clientId }: { clientId: string }) => {
   const swallow = (m: any) => (...a: any[]) => m(...a).catch(() => {});
   const [categorizeAll, { loading: categorizing }] = useMutation(CATEGORIZE_ALL, { refetchQueries });
   const [sendEmail, { loading: sending }] = useMutation(SEND_EMAIL, { refetchQueries });
-  const [updateTransaction] = useMutation(UPDATE_TRANSACTION, { refetchQueries });
+  // Also refetch VENDORS: accepting a typed-in vendor creates a new Vendor row,
+  // which must show up in the dropdown.
+  const [updateTransaction] = useMutation(UPDATE_TRANSACTION, {
+    refetchQueries: [...refetchQueries, { query: VENDORS, variables: { clientId } }],
+  });
   const [submitFeedback] = useMutation(SUBMIT_FEEDBACK);
 
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -129,6 +133,7 @@ export const TransactionsTable = ({ clientId }: { clientId: string }) => {
     setPending({ txnId: t.id, field: "category", value, aiName: catName(t.aiCategoryId) ?? "—", newName: catName(value) ?? value });
   };
   const onVendorChange = (t: any, value: string) => {
+    if (value === "__new__") { setNewVendorInput(""); setNewVendor({ txnId: t.id }); return; }
     if (value.startsWith("new:")) return accept(t, { newVendorName: value.slice(4) });
     if (value === t.aiVendorId) return accept(t, { vendor: value });
     setReason("");
@@ -293,7 +298,13 @@ export const TransactionsTable = ({ clientId }: { clientId: string }) => {
                     <select className={selectCls} value={vendorValue(t)} onChange={(e) => onVendorChange(t, e.target.value)}>
                       <option value="" disabled>Pick…</option>
                       {vendors.map((v: any) => <option key={v.id} value={v.id}>{v.name}</option>)}
+                      {/* Selected final vendor not yet in the list (e.g. just created) —
+                          render it so the dropdown shows the right name, not a fallback one. */}
+                      {t.finalVendorId && !vendors.some((v: any) => v.id === t.finalVendorId) && (
+                        <option value={t.finalVendorId}>{venName(t.finalVendorId) ?? t.finalNewVendorName ?? "Selected vendor"}</option>
+                      )}
                       {t.finalNewVendorName && <option value={`new:${t.finalNewVendorName}`}>{t.finalNewVendorName} (new)</option>}
+                      <option value="__new__">+ Create new vendor…</option>
                     </select>
                   )}
                 </td>
@@ -391,7 +402,7 @@ export const TransactionsTable = ({ clientId }: { clientId: string }) => {
           <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl" onClick={(e) => e.stopPropagation()}>
             <h3 className="text-lg font-semibold text-slate-800">New vendor</h3>
             <p className="mt-1 text-sm text-slate-500">
-              The AI couldn&rsquo;t match an existing vendor. Approve to create this vendor in QuickBooks, or enter a different name.
+              Type the vendor name to create it in QuickBooks, then approve. (Pre-filled when the AI proposed one.)
             </p>
             <input value={newVendorInput} onChange={(e) => setNewVendorInput(e.target.value)} autoFocus
               className="mt-3 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400" />
