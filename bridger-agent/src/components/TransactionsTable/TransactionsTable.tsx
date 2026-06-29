@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@apollo/client";
+import confetti from "canvas-confetti";
 import {
   BANK_ACCOUNTS,
   TRANSACTIONS,
@@ -78,6 +79,11 @@ export const TransactionsTable = ({ clientId }: { clientId: string }) => {
   const [reason, setReason] = useState("");
   const [showRequest, setShowRequest] = useState(false);
   const [asks, setAsks] = useState<Record<string, { category: boolean; vendor: boolean }>>({});
+  const [newVendor, setNewVendor] = useState<{ txnId: string } | null>(null);
+  const [newVendorInput, setNewVendorInput] = useState("");
+
+  const fireConfetti = () =>
+    confetti({ particleCount: 120, spread: 70, origin: { y: 0.7 }, colors: ["#10b981", "#6366f1", "#f59e0b"] });
 
   const categories = catData?.categories ?? [];
   const vendors = venData?.vendors ?? [];
@@ -154,6 +160,18 @@ export const TransactionsTable = ({ clientId }: { clientId: string }) => {
     setSelected(new Set());
   };
 
+  // Explicit "create new vendor in QBO" flow when the AI proposes a vendor
+  // that doesn't exist yet — accountant approves the name or types a different one.
+  const openNewVendor = (t: any) => {
+    setNewVendorInput(t.aiNewVendorName ?? "");
+    setNewVendor({ txnId: t.id });
+  };
+  const approveNewVendor = async () => {
+    if (!newVendor || !newVendorInput.trim()) return;
+    await swallow(updateTransaction)({ variables: { id: newVendor.txnId, finalNewVendorName: newVendorInput.trim() } });
+    setNewVendor(null);
+  };
+
   const vendorValue = (t: any) => {
     if (t.finalVendorId) return t.finalVendorId;
     if (t.finalNewVendorName) return `new:${t.finalNewVendorName}`;
@@ -180,7 +198,7 @@ export const TransactionsTable = ({ clientId }: { clientId: string }) => {
             className="px-3.5 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium shadow-sm disabled:opacity-40 transition">
             {categorizing ? "Categorizing…" : "Categorize All"}
           </button>
-          <button onClick={() => swallow(acceptAll)({ variables: { ids: selectedIds } }).then(() => setSelected(new Set()))}
+          <button onClick={() => swallow(acceptAll)({ variables: { ids: selectedIds } }).then(() => { setSelected(new Set()); fireConfetti(); })}
             disabled={accepting || selectedIds.length === 0}
             className="px-3.5 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium shadow-sm disabled:opacity-40 transition">
             Approve ({selectedIds.length})
@@ -240,11 +258,18 @@ export const TransactionsTable = ({ clientId }: { clientId: string }) => {
                   </select>
                 </td>
                 <td className="px-3 py-3">
-                  <select className={selectCls} value={vendorValue(t)} onChange={(e) => onVendorChange(t, e.target.value)}>
-                    <option value="" disabled>Pick…</option>
-                    {vendors.map((v: any) => <option key={v.id} value={v.id}>{v.name}</option>)}
-                    {t.aiNewVendorName && <option value={`new:${t.aiNewVendorName}`}>New: {t.aiNewVendorName}</option>}
-                  </select>
+                  {t.aiNewVendorName && !t.finalVendorId && !t.finalNewVendorName ? (
+                    <button onClick={() => openNewVendor(t)}
+                      className="rounded-md border border-amber-300 bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-700 hover:bg-amber-100 transition">
+                      New vendor: {t.aiNewVendorName} — review
+                    </button>
+                  ) : (
+                    <select className={selectCls} value={vendorValue(t)} onChange={(e) => onVendorChange(t, e.target.value)}>
+                      <option value="" disabled>Pick…</option>
+                      {vendors.map((v: any) => <option key={v.id} value={v.id}>{v.name}</option>)}
+                      {t.finalNewVendorName && <option value={`new:${t.finalNewVendorName}`}>{t.finalNewVendorName} (new)</option>}
+                    </select>
+                  )}
                 </td>
                 <td className="px-3 py-3">
                   <span className={`px-2.5 py-1 rounded-full text-xs font-medium ${statusPill[t.status] ?? "bg-slate-100 text-slate-600"}`}>
@@ -321,6 +346,27 @@ export const TransactionsTable = ({ clientId }: { clientId: string }) => {
               <button onClick={sendRequest} disabled={sending}
                 className="px-3.5 py-2 rounded-lg bg-amber-500 hover:bg-amber-600 text-white text-sm font-medium disabled:opacity-40">
                 Send request
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* New-vendor approval — explicit "create in QBO" or type a different name */}
+      {newVendor && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40" onClick={() => setNewVendor(null)}>
+          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-lg font-semibold text-slate-800">New vendor</h3>
+            <p className="mt-1 text-sm text-slate-500">
+              The AI couldn&rsquo;t match an existing vendor for this transaction. Approve to create this vendor in QuickBooks, or enter a different name.
+            </p>
+            <input value={newVendorInput} onChange={(e) => setNewVendorInput(e.target.value)} autoFocus
+              className="mt-3 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400" />
+            <div className="mt-4 flex justify-end gap-2">
+              <button onClick={() => setNewVendor(null)} className="px-3.5 py-2 rounded-lg text-sm font-medium text-slate-600 hover:bg-slate-100">Cancel</button>
+              <button onClick={approveNewVendor} disabled={!newVendorInput.trim()}
+                className="px-3.5 py-2 rounded-lg bg-amber-500 hover:bg-amber-600 text-white text-sm font-medium disabled:opacity-40">
+                Approve &amp; create in QBO
               </button>
             </div>
           </div>
