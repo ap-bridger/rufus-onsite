@@ -77,8 +77,11 @@ const { handleRequest } = createYoga({
   fetchAPI: { Response },
 });
 
-export {
-  handleRequest as GET,
-  handleRequest as POST,
-  handleRequest as OPTIONS,
-};
+// Yoga's `handleRequest` second arg (Partial<ServerAdapterInitialContext>) doesn't
+// match Next's route-handler context ({ params }), which fails `next build` type
+// validation. Wrap it so the exported handlers match Next's expected signature.
+function handler(request: Request) {
+  return handleRequest(request, {});
+}
+
+export { handler as GET, handler as POST, handler as OPTIONS };
