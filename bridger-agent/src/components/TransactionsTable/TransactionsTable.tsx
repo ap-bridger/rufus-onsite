@@ -298,6 +298,11 @@ export const TransactionsTable = ({ clientId }: { clientId: string }) => {
                     <select className={selectCls} value={vendorValue(t)} onChange={(e) => onVendorChange(t, e.target.value)}>
                       <option value="" disabled>Pick…</option>
                       {vendors.map((v: any) => <option key={v.id} value={v.id}>{v.name}</option>)}
+                      {/* Selected final vendor not yet in the list (e.g. just created) —
+                          render it so the dropdown shows the right name, not a fallback one. */}
+                      {t.finalVendorId && !vendors.some((v: any) => v.id === t.finalVendorId) && (
+                        <option value={t.finalVendorId}>{venName(t.finalVendorId) ?? t.finalNewVendorName ?? "Selected vendor"}</option>
+                      )}
                       {t.finalNewVendorName && <option value={`new:${t.finalNewVendorName}`}>{t.finalNewVendorName} (new)</option>}
                       <option value="__new__">+ Create new vendor…</option>
                     </select>
