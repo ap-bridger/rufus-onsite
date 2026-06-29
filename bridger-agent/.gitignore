@@ -26,6 +26,11 @@ prisma/dev.db-journal
 .DS_Store
 *.pem
 
+# editor swap/temp files
+*.swp
+*.swo
+*~
+
 # debug
 npm-debug.log*
 yarn-debug.log*
