@@ -214,7 +214,7 @@ export const TransactionsTable = ({ clientId }: { clientId: string }) => {
                 </td>
                 <td className="px-3 py-3 font-mono text-xs text-slate-600">{t.description}</td>
                 <td className="px-3 py-3 text-right tabular-nums font-medium text-slate-800">{fmt(t.amountCents)}</td>
-                <td className="px-3 py-3 text-slate-400">{String(t.date).slice(0, 10)}</td>
+                <td className="px-3 py-3 text-slate-400 whitespace-nowrap">{String(t.date).slice(0, 10)}</td>
                 <td className="px-3 py-3 text-slate-500">
                   {catName(t.aiCategoryId) ?? <span className="text-slate-300">—</span>}
                   {t.aiNewVendorName && <div className="text-xs text-indigo-500">new vendor: {t.aiNewVendorName}</div>}
