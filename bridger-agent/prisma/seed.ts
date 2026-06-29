@@ -54,23 +54,28 @@ async function main() {
   await prisma.category.deleteMany();
   await prisma.vendor.deleteMany();
 
-  // 2. Reference data — stable IDs so reseeding is idempotent.
-  const categories = await Promise.all(
-    CATEGORIES.map((c) =>
-      prisma.category.create({ data: { id: `cat_${c.qboId}`, ...c } })
-    )
-  );
-  const vendors = await Promise.all(
-    VENDORS.map((v) =>
-      prisma.vendor.create({ data: { id: `ven_${v.qboId}`, ...v } })
-    )
-  );
-
-  // 3. One client with three bank accounts.
+  // 2. One client.
   const client = await prisma.client.create({
     data: { id: "client_acme", name: "Acme Inc." },
   });
 
+  // 3. Reference data, scoped to the client. Stable IDs so reseeding is idempotent.
+  const categories = await Promise.all(
+    CATEGORIES.map((c) =>
+      prisma.category.create({
+        data: { id: `cat_${c.qboId}`, clientId: client.id, ...c },
+      })
+    )
+  );
+  const vendors = await Promise.all(
+    VENDORS.map((v) =>
+      prisma.vendor.create({
+        data: { id: `ven_${v.qboId}`, clientId: client.id, ...v },
+      })
+    )
+  );
+
+  // 4. Three bank accounts for the client.
   const accounts = await Promise.all(
     ["Operating Checking", "Payroll Account", "Business Savings"].map(
       (name, i) =>
@@ -80,7 +85,7 @@ async function main() {
     )
   );
 
-  // 4. ~20 transactions per account.
+  // 5. ~20 transactions per account.
   let txnSeq = 0;
   let newVendorBudget = NEW_VENDOR_NAMES.length; // keep "new vendors" small/global
 
