@@ -72,7 +72,11 @@ export const TransactionsTable = ({ clientId }: { clientId: string }) => {
   const swallow = (m: any) => (...a: any[]) => m(...a).catch(() => {});
   const [categorizeAll, { loading: categorizing }] = useMutation(CATEGORIZE_ALL, { refetchQueries });
   const [sendEmail, { loading: sending }] = useMutation(SEND_EMAIL, { refetchQueries });
-  const [updateTransaction] = useMutation(UPDATE_TRANSACTION, { refetchQueries });
+  // Also refetch VENDORS: accepting a typed-in vendor creates a new Vendor row,
+  // which must show up in the dropdown.
+  const [updateTransaction] = useMutation(UPDATE_TRANSACTION, {
+    refetchQueries: [...refetchQueries, { query: VENDORS, variables: { clientId } }],
+  });
   const [submitFeedback] = useMutation(SUBMIT_FEEDBACK);
 
   const [selected, setSelected] = useState<Set<string>>(new Set());
