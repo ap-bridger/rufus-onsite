@@ -45,6 +45,23 @@ const VENDORS = [
 // Vendors the AI proposes that don't yet exist in QBO (the "new vendor" flow).
 const NEW_VENDOR_NAMES = ["Blue Bottle Coffee", "Acme Logistics", "Figma"];
 
+// Each vendor maps to the category it canonically belongs to, so seeded data is
+// coherent (a Starbucks charge is Meals, a GitHub charge is Software). This both
+// makes the demo look real and gives the few-shot feedback loop clean labels.
+const VENDOR_CATEGORY: Record<string, string> = {
+  Amazon: "Office Supplies",
+  Uber: "Travel",
+  Starbucks: "Meals & Entertainment",
+  GitHub: "Software & Subscriptions",
+  Comcast: "Utilities",
+  "Delta Air Lines": "Travel",
+};
+const NEW_VENDOR_CATEGORY: Record<string, string> = {
+  "Blue Bottle Coffee": "Meals & Entertainment",
+  "Acme Logistics": "Office Supplies",
+  Figma: "Software & Subscriptions",
+};
+
 async function main() {
   // 1. Reset — delete in FK-dependency order so re-runs start from a clean slate.
   // Client must be deleted LAST: BankAccount, Category and Vendor all FK-reference it.
@@ -94,8 +111,6 @@ async function main() {
     const count = randInt(18, 22);
     for (let i = 0; i < count; i++) {
       txnSeq++;
-      const confidence =
-        rng() < 0.7 ? Confidence.HIGH : Confidence.LOW;
       const status = pick([
         Status.DRAFT,
         Status.DRAFT,
@@ -103,19 +118,32 @@ async function main() {
         Status.SENT,
       ]);
 
-      const aiCategory = pick(categories);
-
-      // A small number of transactions propose a brand-new vendor instead of
-      // matching an existing one.
-      const proposeNewVendor = newVendorBudget > 0 && rng() < 0.05;
+      // Pick a vendor first, then the category it canonically maps to.
+      // A small number of transactions propose a brand-new vendor instead.
+      const proposeNewVendor = newVendorBudget > 0 && rng() < 0.08;
       let aiVendorId: string | null = null;
       let aiNewVendorName: string | null = null;
+      let vendorName: string;
+      let categoryName: string;
       if (proposeNewVendor) {
         aiNewVendorName = NEW_VENDOR_NAMES[NEW_VENDOR_NAMES.length - newVendorBudget];
+        vendorName = aiNewVendorName;
+        categoryName = NEW_VENDOR_CATEGORY[aiNewVendorName];
         newVendorBudget--;
       } else {
-        aiVendorId = pick(vendors).id;
+        const vendor = pick(vendors);
+        aiVendorId = vendor.id;
+        vendorName = vendor.name;
+        categoryName = VENDOR_CATEGORY[vendor.name];
       }
+      const aiCategory = categories.find((c) => c.name === categoryName)!;
+
+      // New/unknown vendors are inherently less certain; known vendors mostly HIGH.
+      const confidence = proposeNewVendor
+        ? Confidence.LOW
+        : rng() < 0.85
+          ? Confidence.HIGH
+          : Confidence.LOW;
 
       // Once a human accepts/sends, the "final" fields mirror the AI suggestion.
       const finalized = status !== Status.DRAFT;
@@ -135,9 +163,7 @@ async function main() {
           bankAccountId: account.id,
           date,
           amountCents,
-          description: aiNewVendorName
-            ? `Card purchase - ${aiNewVendorName}`
-            : `Card purchase - ${vendors.find((v) => v.id === aiVendorId)?.name}`,
+          description: `Card purchase - ${vendorName}`,
           aiCategoryId: aiCategory.id,
           aiVendorId,
           aiNewVendorName,
