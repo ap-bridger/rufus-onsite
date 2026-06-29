@@ -16,6 +16,7 @@
     "seed": "tsx prisma/seed.ts"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.107.0",
     "@apollo/client": "^3.11.10",
     "@prisma/client": "^5.22.0",
     "graphql": "^16.9.0",
