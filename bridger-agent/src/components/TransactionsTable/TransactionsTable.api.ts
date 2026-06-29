@@ -70,3 +70,10 @@ export const SEND_EMAIL = gql(`
     sendEmail(ids: $ids) { id status }
   }
 `);
+
+// Captures why the accountant overrode the AI's category/vendor (training signal).
+export const SUBMIT_FEEDBACK = gql(`
+  mutation SubmitFeedback($transactionId: ID!, $feedback: String!) {
+    submitFeedback(transactionId: $transactionId, feedback: $feedback) { id }
+  }
+`);
