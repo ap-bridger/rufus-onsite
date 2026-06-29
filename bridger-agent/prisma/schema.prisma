@@ -10,3 +10,71 @@ datasource db {
 model Greet {
   id Int @id @default(autoincrement())
 }
+
+model Client {
+  id   String @id @default(cuid())
+  name String
+
+  bankAccounts BankAccount[]
+}
+
+model BankAccount {
+  id       String @id @default(cuid())
+  clientId String
+  name     String
+
+  client       Client        @relation(fields: [clientId], references: [id])
+  transactions Transaction[]
+}
+
+model Category {
+  id    String @id @default(cuid())
+  qboId String
+  name  String
+
+  aiTransactions    Transaction[] @relation("AiCategory")
+  finalTransactions Transaction[] @relation("FinalCategory")
+}
+
+model Vendor {
+  id    String @id @default(cuid())
+  qboId String
+  name  String
+
+  aiTransactions    Transaction[] @relation("AiVendor")
+  finalTransactions Transaction[] @relation("FinalVendor")
+}
+
+// status: DRAFT | ACCEPTED | SENT  (SQLite has no native enum support in Prisma)
+// confidence: HIGH | LOW
+model Transaction {
+  id                 String   @id @default(cuid())
+  qboId              String
+  bankAccountId      String
+  date               DateTime
+  amountCents        Int
+  description        String
+  aiCategoryId       String?
+  aiVendorId         String?
+  aiNewVendorName    String?
+  finalCategoryId    String?
+  finalVendorId      String?
+  finalNewVendorName String?
+  status             String
+  confidence         String
+
+  bankAccount   BankAccount @relation(fields: [bankAccountId], references: [id])
+  aiCategory    Category?   @relation("AiCategory", fields: [aiCategoryId], references: [id])
+  aiVendor      Vendor?     @relation("AiVendor", fields: [aiVendorId], references: [id])
+  finalCategory Category?   @relation("FinalCategory", fields: [finalCategoryId], references: [id])
+  finalVendor   Vendor?     @relation("FinalVendor", fields: [finalVendorId], references: [id])
+  feedback      Feedback[]
+}
+
+model Feedback {
+  id            String @id @default(cuid())
+  transactionId String
+  feedback      String
+
+  transaction Transaction @relation(fields: [transactionId], references: [id])
+}
