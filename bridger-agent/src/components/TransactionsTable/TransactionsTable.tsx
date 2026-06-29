@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useQuery, useMutation } from "@apollo/client";
 import confetti from "canvas-confetti";
 import {
@@ -8,7 +8,6 @@ import {
   VENDORS,
   CATEGORIZE_ALL,
   UPDATE_TRANSACTION,
-  ACCEPT_ALL,
   SEND_EMAIL,
   SUBMIT_FEEDBACK,
 } from "./TransactionsTable.api";
@@ -19,10 +18,8 @@ const fmt = (cents: number) => {
 };
 
 const rowAccent = (t: any) => {
-  // Resolved rows: status wins (an accepted txn isn't "needs review" even if low-confidence).
   if (t.status === "ACCEPTED") return "border-l-emerald-400 bg-emerald-50/30";
   if (t.status === "SENT") return "border-l-amber-400 bg-amber-50/40";
-  // Un-reviewed (DRAFT): color by AI confidence so low-confidence items stand out.
   if (t.confidence === "HIGH") return "border-l-emerald-400 bg-emerald-50/30";
   if (t.confidence === "LOW") return "border-l-rose-400 bg-rose-50/30";
   return "border-l-transparent";
@@ -34,8 +31,6 @@ const statusPill: Record<string, string> = {
   SENT: "bg-amber-100 text-amber-700",
 };
 
-// Review priority: needs-review (DRAFT) first, then SENT, then ACCEPTED;
-// within a group, low-confidence first, then most recent.
 const statusRank: Record<string, number> = { DRAFT: 0, SENT: 1, ACCEPTED: 2 };
 const sortForReview = (a: any, b: any) => {
   const s = (statusRank[a.status] ?? 9) - (statusRank[b.status] ?? 9);
@@ -50,13 +45,21 @@ const selectCls =
 
 const REASON_CHIPS = ["Wrong category", "Wrong vendor", "Needs more context", "Duplicate", "Other"];
 
+const FACTS = [
+  "Double-entry bookkeeping dates to 1494 — Luca Pacioli, the “father of accounting.”",
+  "“SQ *” on a statement means a Square payment; “TST*” is Toast.",
+  "Hand-categorizing, businesses misfile roughly 1 in 5 transactions.",
+  "The AI reads the messy bank descriptor so Avery doesn’t have to.",
+  "Low-confidence items are floated to the top so nothing slips through.",
+  "Every correction you make becomes training data for next time.",
+];
+
 type Pending = { txnId: string; field: "category" | "vendor"; value: string; aiName: string; newName: string };
 
 export const TransactionsTable = ({ clientId }: { clientId: string }) => {
   const { data: bankData } = useQuery(BANK_ACCOUNTS, { variables: { clientId } });
   const accounts = bankData?.bankAccounts ?? [];
-  const [accountId, setAccountId] = useState<string | null>(null);
-  const activeAccount = accountId ?? accounts[0]?.id ?? null;
+  const activeAccount = accounts[0]?.id ?? null;
 
   const { data: catData } = useQuery(CATEGORIES, { variables: { clientId } });
   const { data: venData } = useQuery(VENDORS, { variables: { clientId } });
@@ -66,9 +69,8 @@ export const TransactionsTable = ({ clientId }: { clientId: string }) => {
   });
 
   const refetchQueries = activeAccount ? [{ query: TRANSACTIONS, variables: { bankAccountId: activeAccount } }] : [];
-  const swallow = (m: any) => (...a: any[]) => m(...a).catch(() => {}); // backend mutations pending
+  const swallow = (m: any) => (...a: any[]) => m(...a).catch(() => {});
   const [categorizeAll, { loading: categorizing }] = useMutation(CATEGORIZE_ALL, { refetchQueries });
-  const [acceptAll, { loading: accepting }] = useMutation(ACCEPT_ALL, { refetchQueries });
   const [sendEmail, { loading: sending }] = useMutation(SEND_EMAIL, { refetchQueries });
   const [updateTransaction] = useMutation(UPDATE_TRANSACTION, { refetchQueries });
   const [submitFeedback] = useMutation(SUBMIT_FEEDBACK);
@@ -78,9 +80,18 @@ export const TransactionsTable = ({ clientId }: { clientId: string }) => {
   const [pending, setPending] = useState<Pending | null>(null);
   const [reason, setReason] = useState("");
   const [showRequest, setShowRequest] = useState(false);
+  const [requestMsg, setRequestMsg] = useState("");
   const [asks, setAsks] = useState<Record<string, { category: boolean; vendor: boolean }>>({});
   const [newVendor, setNewVendor] = useState<{ txnId: string } | null>(null);
   const [newVendorInput, setNewVendorInput] = useState("");
+  const [factIdx, setFactIdx] = useState(0);
+  const [sentToast, setSentToast] = useState(false);
+
+  useEffect(() => {
+    if (!categorizing) return;
+    const id = setInterval(() => setFactIdx((i) => (i + 1) % FACTS.length), 2200);
+    return () => clearInterval(id);
+  }, [categorizing]);
 
   const fireConfetti = () =>
     confetti({ particleCount: 120, spread: 70, origin: { y: 0.7 }, colors: ["#10b981", "#6366f1", "#f59e0b"] });
@@ -99,77 +110,91 @@ export const TransactionsTable = ({ clientId }: { clientId: string }) => {
     setSelected((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
   const toggleAll = () => setSelected((s) => (s.size === txns.length ? new Set() : new Set(allIds)));
 
-  // Picking the AI's own suggestion = accept (no feedback). Picking something
-  // else = an override → open the feedback modal.
+  // Accept a transaction, preserving the field we're NOT changing — Alex's
+  // updateTransaction sets BOTH final category and vendor on every ACCEPTED call,
+  // so we always pass the current value for the other one.
+  const accept = (t: any, ov: { category?: string | null; vendor?: string | null; newVendorName?: string | null } = {}) => {
+    const category = "category" in ov ? ov.category : (t.finalCategoryId ?? t.aiCategoryId ?? null);
+    let vendor = "vendor" in ov ? ov.vendor : (t.finalVendorId ?? t.aiVendorId ?? null);
+    let newVendorName = "newVendorName" in ov ? ov.newVendorName : (t.finalNewVendorName ?? t.aiNewVendorName ?? null);
+    if ("vendor" in ov) newVendorName = null;
+    if ("newVendorName" in ov) vendor = null;
+    if (vendor && newVendorName) newVendorName = null;
+    return swallow(updateTransaction)({ variables: { id: t.id, status: "ACCEPTED", category, vendor, newVendorName } });
+  };
+
   const onCategoryChange = (t: any, value: string) => {
-    if (value === t.aiCategoryId) return swallow(updateTransaction)({ variables: { id: t.id, finalCategoryId: value } });
+    if (value === t.aiCategoryId) return accept(t, { category: value });
     setReason("");
     setPending({ txnId: t.id, field: "category", value, aiName: catName(t.aiCategoryId) ?? "—", newName: catName(value) ?? value });
   };
   const onVendorChange = (t: any, value: string) => {
-    const isNew = value.startsWith("new:");
-    if (!isNew && value === t.aiVendorId) return swallow(updateTransaction)({ variables: { id: t.id, finalVendorId: value } });
+    if (value.startsWith("new:")) return accept(t, { newVendorName: value.slice(4) });
+    if (value === t.aiVendorId) return accept(t, { vendor: value });
     setReason("");
-    setPending({
-      txnId: t.id, field: "vendor", value,
-      aiName: venName(t.aiVendorId) ?? t.aiNewVendorName ?? "—",
-      newName: isNew ? value.slice(4) : venName(value) ?? value,
-    });
+    setPending({ txnId: t.id, field: "vendor", value, aiName: venName(t.aiVendorId) ?? t.aiNewVendorName ?? "—", newName: venName(value) ?? value });
   };
 
   const applyPending = async () => {
     if (!pending) return;
-    const vars: any = { id: pending.txnId };
-    if (pending.field === "category") vars.finalCategoryId = pending.value;
-    else if (pending.value.startsWith("new:")) vars.finalNewVendorName = pending.value.slice(4);
-    else vars.finalVendorId = pending.value;
-    await swallow(updateTransaction)({ variables: vars });
+    const t = all.find((x: any) => x.id === pending.txnId);
+    if (t) {
+      if (pending.field === "category") await accept(t, { category: pending.value });
+      else if (pending.value.startsWith("new:")) await accept(t, { newVendorName: pending.value.slice(4) });
+      else await accept(t, { vendor: pending.value });
+    }
     const note = `${pending.field === "category" ? "Category" : "Vendor"} changed from "${pending.aiName}" to "${pending.newName}": ${reason}`;
     await swallow(submitFeedback)({ variables: { transactionId: pending.txnId, feedback: note } });
     setPending(null);
   };
 
-  // Open the request modal; default to asking about whatever isn't finalized yet
-  // (so the accountant sees a sensible category/vendor pre-selection per transaction).
+  const approveSelected = async () => {
+    const sel = all.filter((t: any) => selected.has(t.id));
+    await Promise.all(sel.map((t: any) => accept(t)));
+    setSelected(new Set());
+    fireConfetti();
+  };
+
+  const openNewVendor = (t: any) => { setNewVendorInput(t.aiNewVendorName ?? ""); setNewVendor({ txnId: t.id }); };
+  const approveNewVendor = async () => {
+    if (!newVendor || !newVendorInput.trim()) return;
+    const t = all.find((x: any) => x.id === newVendor.txnId);
+    if (t) await accept(t, { newVendorName: newVendorInput.trim() });
+    setNewVendor(null);
+  };
+
+  // Per-transaction: which field(s) the accountant is asking the client about.
+  const buildEmail = (a: Record<string, { category: boolean; vendor: boolean }>) => {
+    const sel = all.filter((t: any) => selected.has(t.id));
+    const lines = sel.map((t: any) => {
+      const ak = a[t.id] ?? { category: false, vendor: false };
+      const wanted = [ak.category && "category", ak.vendor && "vendor"].filter(Boolean).join(" and ");
+      const ask = wanted ? `Could you tell us the ${wanted}?` : "Could you share a bit more detail?";
+      return `• On ${String(t.date).slice(0, 10)}, a payment of ${fmt(t.amountCents)} (${t.description}). ${ask}`;
+    }).join("\n");
+    return `Hey Dylan,\n\nWe're reviewing SpaceX's recent transactions and need a little more detail on the following so we can record them correctly:\n\n${lines}\n\nThanks so much!\nThe Bridger bookkeeping team`;
+  };
   const openRequest = () => {
     const init: Record<string, { category: boolean; vendor: boolean }> = {};
     all.filter((t: any) => selected.has(t.id)).forEach((t: any) => {
       init[t.id] = { category: !t.finalCategoryId, vendor: !t.finalVendorId && !t.finalNewVendorName };
     });
     setAsks(init);
+    setRequestMsg(buildEmail(init));
     setShowRequest(true);
   };
   const toggleAsk = (id: string, field: "category" | "vendor") =>
-    setAsks((p) => ({ ...p, [id]: { ...p[id], [field]: !p[id]?.[field] } }));
-  // Builds the client email from the per-transaction category/vendor selections.
-  const buildEmail = () => {
-    const sel = all.filter((t: any) => selected.has(t.id));
-    const lines = sel
-      .map((t: any) => {
-        const a = asks[t.id] ?? { category: false, vendor: false };
-        const wanted = [a.category && "category", a.vendor && "vendor"].filter(Boolean).join(" and ");
-        const ask = wanted ? `Could you tell us the ${wanted}?` : "Could you share a bit more detail?";
-        return `• On ${String(t.date).slice(0, 10)}, a payment of ${fmt(t.amountCents)} (${t.description}). ${ask}`;
-      })
-      .join("\n");
-    return `Hey Dylan,\n\nWe're reviewing SpaceX's recent transactions and need a little more detail on the following so we can record them correctly:\n\n${lines}\n\nThanks so much!\nThe Bridger bookkeeping team`;
-  };
+    setAsks((p) => {
+      const next = { ...p, [id]: { ...p[id], [field]: !p[id]?.[field] } };
+      setRequestMsg(buildEmail(next));
+      return next;
+    });
   const sendRequest = async () => {
     await swallow(sendEmail)({ variables: { ids: selectedIds } });
     setShowRequest(false);
     setSelected(new Set());
-  };
-
-  // Explicit "create new vendor in QBO" flow when the AI proposes a vendor
-  // that doesn't exist yet — accountant approves the name or types a different one.
-  const openNewVendor = (t: any) => {
-    setNewVendorInput(t.aiNewVendorName ?? "");
-    setNewVendor({ txnId: t.id });
-  };
-  const approveNewVendor = async () => {
-    if (!newVendor || !newVendorInput.trim()) return;
-    await swallow(updateTransaction)({ variables: { id: newVendor.txnId, finalNewVendorName: newVendorInput.trim() } });
-    setNewVendor(null);
+    setSentToast(true);
+    setTimeout(() => setSentToast(false), 2800);
   };
 
   const vendorValue = (t: any) => {
@@ -180,6 +205,7 @@ export const TransactionsTable = ({ clientId }: { clientId: string }) => {
     return "";
   };
   const dot = (cls: string) => <span className={`inline-block w-2 h-2 rounded-full ${cls}`} />;
+  const selTxns = all.filter((t: any) => selected.has(t.id));
 
   return (
     <div className="w-full max-w-6xl rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
@@ -198,8 +224,8 @@ export const TransactionsTable = ({ clientId }: { clientId: string }) => {
             className="px-3.5 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium shadow-sm disabled:opacity-40 transition">
             {categorizing ? "Categorizing…" : "Categorize All"}
           </button>
-          <button onClick={() => swallow(acceptAll)({ variables: { ids: selectedIds } }).then(() => { setSelected(new Set()); fireConfetti(); })}
-            disabled={accepting || selectedIds.length === 0}
+          <button onClick={approveSelected}
+            disabled={selectedIds.length === 0}
             className="px-3.5 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium shadow-sm disabled:opacity-40 transition">
             Approve ({selectedIds.length})
           </button>
@@ -284,7 +310,18 @@ export const TransactionsTable = ({ clientId }: { clientId: string }) => {
 
       {!loading && !error && txns.length === 0 && <div className="p-10 text-center text-slate-400">No transactions.</div>}
 
-      {/* Feedback modal — opens when the accountant overrides an AI suggestion */}
+      {/* Categorizing — world-class wait UX */}
+      {categorizing && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40">
+          <div className="w-full max-w-sm rounded-2xl bg-white p-7 shadow-xl text-center">
+            <div className="mx-auto h-9 w-9 rounded-full border-2 border-indigo-200 border-t-indigo-600 animate-spin" />
+            <h3 className="mt-4 text-base font-semibold text-slate-800">Categorizing with AI…</h3>
+            <p className="mt-2 text-sm text-slate-500 min-h-[2.5rem]">{FACTS[factIdx]}</p>
+          </div>
+        </div>
+      )}
+
+      {/* Feedback modal — AI override */}
       {pending && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40" onClick={() => setPending(null)}>
           <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl" onClick={(e) => e.stopPropagation()}>
@@ -315,17 +352,14 @@ export const TransactionsTable = ({ clientId }: { clientId: string }) => {
         </div>
       )}
 
-      {/* Info-request preview — drafts the client email before sending */}
+      {/* Info-request — per-txn ask + editable email */}
       {showRequest && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40" onClick={() => setShowRequest(false)}>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4" onClick={() => setShowRequest(false)}>
           <div className="w-full max-w-2xl rounded-2xl bg-white p-6 shadow-xl max-h-[85vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
             <h3 className="text-lg font-semibold text-slate-800">Request info from client</h3>
-            <p className="mt-1 text-sm text-slate-500">
-              To: <span className="font-medium text-slate-700">Dylan (SpaceX)</span> · choose what to ask about for each transaction
-            </p>
-
+            <p className="mt-1 text-sm text-slate-500">To: <span className="font-medium text-slate-700">Dylan (SpaceX)</span> · choose what to ask for each transaction</p>
             <div className="mt-3 space-y-1.5">
-              {all.filter((t: any) => selected.has(t.id)).map((t: any) => (
+              {selTxns.map((t: any) => (
                 <div key={t.id} className="flex items-center justify-between gap-3 rounded-lg border border-slate-100 px-3 py-2 text-sm">
                   <span className="text-slate-600 truncate">
                     <span className="text-slate-400">{String(t.date).slice(0, 10)}</span> · {t.description} · <span className="tabular-nums">{fmt(t.amountCents)}</span>
@@ -337,10 +371,9 @@ export const TransactionsTable = ({ clientId }: { clientId: string }) => {
                 </div>
               ))}
             </div>
-
-            <p className="mt-4 text-xs font-medium uppercase tracking-wide text-slate-400">Email preview</p>
-            <pre className="mt-1 w-full whitespace-pre-wrap rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700 leading-relaxed font-sans">{buildEmail()}</pre>
-
+            <p className="mt-4 text-xs font-medium uppercase tracking-wide text-slate-400">Email (editable)</p>
+            <textarea value={requestMsg} onChange={(e) => setRequestMsg(e.target.value)} rows={10}
+              className="mt-1 w-full rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700 leading-relaxed focus:outline-none focus:ring-2 focus:ring-amber-400" />
             <div className="mt-4 flex justify-end gap-2">
               <button onClick={() => setShowRequest(false)} className="px-3.5 py-2 rounded-lg text-sm font-medium text-slate-600 hover:bg-slate-100">Cancel</button>
               <button onClick={sendRequest} disabled={sending}
@@ -352,13 +385,13 @@ export const TransactionsTable = ({ clientId }: { clientId: string }) => {
         </div>
       )}
 
-      {/* New-vendor approval — explicit "create in QBO" or type a different name */}
+      {/* New-vendor approval */}
       {newVendor && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40" onClick={() => setNewVendor(null)}>
           <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl" onClick={(e) => e.stopPropagation()}>
             <h3 className="text-lg font-semibold text-slate-800">New vendor</h3>
             <p className="mt-1 text-sm text-slate-500">
-              The AI couldn&rsquo;t match an existing vendor for this transaction. Approve to create this vendor in QuickBooks, or enter a different name.
+              The AI couldn&rsquo;t match an existing vendor. Approve to create this vendor in QuickBooks, or enter a different name.
             </p>
             <input value={newVendorInput} onChange={(e) => setNewVendorInput(e.target.value)} autoFocus
               className="mt-3 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400" />
@@ -370,6 +403,17 @@ export const TransactionsTable = ({ clientId }: { clientId: string }) => {
               </button>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Success toast — info request sent */}
+      {sentToast && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2 rounded-full bg-slate-900 px-4 py-2.5 text-white shadow-lg">
+          <svg className="h-4 w-4 text-amber-300" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M22 2 11 13" />
+            <path d="M22 2 15 22l-4-9-9-4 20-7z" />
+          </svg>
+          <span className="text-sm font-medium">Info request sent to Dylan</span>
         </div>
       )}
     </div>
