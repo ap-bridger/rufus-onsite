@@ -77,7 +77,7 @@ export const TransactionsTable = ({ clientId }: { clientId: string }) => {
   const [pending, setPending] = useState<Pending | null>(null);
   const [reason, setReason] = useState("");
   const [showRequest, setShowRequest] = useState(false);
-  const [requestMsg, setRequestMsg] = useState("");
+  const [asks, setAsks] = useState<Record<string, { category: boolean; vendor: boolean }>>({});
 
   const categories = catData?.categories ?? [];
   const vendors = venData?.vendors ?? [];
@@ -123,16 +123,30 @@ export const TransactionsTable = ({ clientId }: { clientId: string }) => {
     setPending(null);
   };
 
-  // Drafts the client email from the selected transactions, then previews before send.
+  // Open the request modal; default to asking about whatever isn't finalized yet
+  // (so the accountant sees a sensible category/vendor pre-selection per transaction).
   const openRequest = () => {
+    const init: Record<string, { category: boolean; vendor: boolean }> = {};
+    all.filter((t: any) => selected.has(t.id)).forEach((t: any) => {
+      init[t.id] = { category: !t.finalCategoryId, vendor: !t.finalVendorId && !t.finalNewVendorName };
+    });
+    setAsks(init);
+    setShowRequest(true);
+  };
+  const toggleAsk = (id: string, field: "category" | "vendor") =>
+    setAsks((p) => ({ ...p, [id]: { ...p[id], [field]: !p[id]?.[field] } }));
+  // Builds the client email from the per-transaction category/vendor selections.
+  const buildEmail = () => {
     const sel = all.filter((t: any) => selected.has(t.id));
     const lines = sel
-      .map((t: any) => `• ${String(t.date).slice(0, 10)} — ${t.description} — ${fmt(t.amountCents)}`)
+      .map((t: any) => {
+        const a = asks[t.id] ?? { category: false, vendor: false };
+        const wanted = [a.category && "category", a.vendor && "vendor"].filter(Boolean).join(" and ");
+        const ask = wanted ? `Could you tell us the ${wanted}?` : "Could you share a bit more detail?";
+        return `• On ${String(t.date).slice(0, 10)}, a payment of ${fmt(t.amountCents)} (${t.description}). ${ask}`;
+      })
       .join("\n");
-    setRequestMsg(
-      `Hi SpaceX team,\n\nCould you help clarify the following transaction(s) so we can categorize them correctly?\n\n${lines}\n\nA short note on the purpose of each would be a big help. Thanks!`
-    );
-    setShowRequest(true);
+    return `Hey Dylan,\n\nWe're reviewing SpaceX's recent transactions and need a little more detail on the following so we can record them correctly:\n\n${lines}\n\nThanks so much!\nThe Bridger bookkeeping team`;
   };
   const sendRequest = async () => {
     await swallow(sendEmail)({ variables: { ids: selectedIds } });
@@ -279,13 +293,29 @@ export const TransactionsTable = ({ clientId }: { clientId: string }) => {
       {/* Info-request preview — drafts the client email before sending */}
       {showRequest && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40" onClick={() => setShowRequest(false)}>
-          <div className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-xl" onClick={(e) => e.stopPropagation()}>
+          <div className="w-full max-w-2xl rounded-2xl bg-white p-6 shadow-xl max-h-[85vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
             <h3 className="text-lg font-semibold text-slate-800">Request info from client</h3>
             <p className="mt-1 text-sm text-slate-500">
-              To: <span className="font-medium text-slate-700">SpaceX</span> · {selectedIds.length} transaction(s)
+              To: <span className="font-medium text-slate-700">Dylan (SpaceX)</span> · choose what to ask about for each transaction
             </p>
-            <textarea value={requestMsg} onChange={(e) => setRequestMsg(e.target.value)} rows={9}
-              className="mt-3 w-full rounded-lg border border-slate-300 p-3 text-sm font-mono leading-relaxed focus:outline-none focus:ring-2 focus:ring-amber-400" />
+
+            <div className="mt-3 space-y-1.5">
+              {all.filter((t: any) => selected.has(t.id)).map((t: any) => (
+                <div key={t.id} className="flex items-center justify-between gap-3 rounded-lg border border-slate-100 px-3 py-2 text-sm">
+                  <span className="text-slate-600 truncate">
+                    <span className="text-slate-400">{String(t.date).slice(0, 10)}</span> · {t.description} · <span className="tabular-nums">{fmt(t.amountCents)}</span>
+                  </span>
+                  <span className="flex items-center gap-3 shrink-0 text-xs text-slate-600">
+                    <label className="flex items-center gap-1"><input type="checkbox" className="accent-amber-500" checked={!!asks[t.id]?.category} onChange={() => toggleAsk(t.id, "category")} /> Category</label>
+                    <label className="flex items-center gap-1"><input type="checkbox" className="accent-amber-500" checked={!!asks[t.id]?.vendor} onChange={() => toggleAsk(t.id, "vendor")} /> Vendor</label>
+                  </span>
+                </div>
+              ))}
+            </div>
+
+            <p className="mt-4 text-xs font-medium uppercase tracking-wide text-slate-400">Email preview</p>
+            <pre className="mt-1 w-full whitespace-pre-wrap rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700 leading-relaxed font-sans">{buildEmail()}</pre>
+
             <div className="mt-4 flex justify-end gap-2">
               <button onClick={() => setShowRequest(false)} className="px-3.5 py-2 rounded-lg text-sm font-medium text-slate-600 hover:bg-slate-100">Cancel</button>
               <button onClick={sendRequest} disabled={sending}
